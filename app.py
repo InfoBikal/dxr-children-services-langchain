@@ -27,6 +27,10 @@ if "pending_input" not in st.session_state:
     st.session_state["pending_input"] = None
 if "session_id" not in st.session_state:
     st.session_state["session_id"] = str(uuid4())
+# This new flag mimics the "working" logic
+if "ran_from_button" not in st.session_state:
+    st.session_state["ran_from_button"] = False
+
 
 # --- UI Elements (Unchanged) ---
 template_questions = [
@@ -102,7 +106,7 @@ with st.sidebar:
         st.session_state["session_id"] = str(uuid4())
         st.rerun()
 
-# --- Main Chat Interface (Logic Updated) ---
+# --- Main Chat Interface (Logic FIXED) ---
 
 st.markdown("### Welcome to TASP Chatbot!")
 
@@ -110,6 +114,7 @@ st.markdown("### Welcome to TASP Chatbot!")
 def set_prompt(question):
     st.session_state["pending_input"] = question
     st.session_state["template_used"] = True
+    st.session_state["ran_from_button"] = True # Set the flag
 
 # Show template questions
 if not st.session_state["messages"] and not st.session_state["template_used"]:
@@ -125,21 +130,25 @@ for msg in st.session_state["messages"]:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
-# Check for pending input from buttons
-if prompt_from_button := st.session_state.pop("pending_input", None):
-    user_input = prompt_from_button
-    st.rerun() # Use rerun to process the button click as a new input
-else:
-    user_input = st.chat_input("Ask me anything...")
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# THIS IS THE "WORKING" INPUT LOGIC
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-# Process user input
+# First, check for text input from the user
+user_input = st.chat_input("Ask me anything...")
+
+# NEXT, check if a button set the input
+if pending_input := st.session_state.pop("pending_input", None):
+    user_input = pending_input  # Overwrite user_input with button text
+    # DO NOT RERUN. Let the script continue.
+
+# NOW, process the input if we have any
 if user_input:
     st.session_state["messages"].append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.write(user_input)
 
     # --- Streaming Logic (This is the 'backend handling' part) ---
-    # This logic is correct for your API and does not need to change.
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
         full_response = ""
@@ -153,40 +162,40 @@ if user_input:
             with requests.post(API_URL, json=payload, stream=True, timeout=90) as r:
                 r.raise_for_status()
                 
+                # This is the "working" parsing logic from streamlit_app.py
                 for line in r.iter_lines():
-                    if line:
-                        try:
-                            # This logic correctly parses the SSE events
-                            # sent by your FastAPI server.
-                            json_str = line.decode('utf-8')
-                            if json_str.startswith('data: '):
-                                json_str = json_str[len('data: '):]
-                            elif json_str.startswith('data:'): # Handle slight variation
-                                json_str = json_str[len('data:'):]
+                    if line: # Filter out keep-alive newlines
+                        decoded_line = line.decode('utf-8')
+                        
+                        if decoded_line.startswith("data:"):
+                            try:
+                                json_start_index = decoded_line.index('{')
+                                data_str = decoded_line[json_start_index:]
+                                data = json.loads(data_str)
+                                
+                                if data.get("event") == "new_token":
+                                    chunk = data.get("data", "")
+                                    full_response += chunk
+                                    message_placeholder.markdown(full_response + "▌")
+                                elif data.get("event") == "error":
+                                    st.error(f"An error occurred: {data.get('data')}")
+                                    break
+                                elif data.get("event") == "end":
+                                    break
                             
-                            if not json_str.strip():
-                                continue
+                            except (json.JSONDecodeError, ValueError) as e:
+                                print(f"Warning: Could not parse line: {decoded_line}. Error: {e}")
+                                pass 
 
-                            data = json.loads(json_str)
-                            
-                            if data.get("event") == "new_token":
-                                chunk = data.get("data", "")
-                                full_response += chunk
-                                message_placeholder.markdown(full_response + "▌")
-                            elif data.get("event") == "error":
-                                st.error(f"An error occurred: {data.get('data')}")
-                                break
-                            elif data.get("event") == "end":
-                                break
-
-                        except json.JSONDecodeError as e:
-                            # Log a warning for debugging, but don't crash
-                            print(f"Warning: Could not decode JSON line: {line.decode('utf-8')}. Error: {e}")
-            
             message_placeholder.markdown(full_response)
             st.session_state["messages"].append({"role": "assistant", "content": full_response})
+
+            # Finally, if this was triggered by a button, rerun now
+            if st.session_state.pop("ran_from_button", False):
+                st.rerun()
 
         except requests.exceptions.RequestException as e:
             st.error(f"Failed to connect to the backend API. Please check the connection and try again. Error: {e}")
         except Exception as e:
             st.error(f"An unexpected error occurred: {e}")
+
