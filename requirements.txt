@@ -1,4 +1,3 @@
-LangChain Core
 langchain
 langchain-core
 langchain-openai
