@@ -8,12 +8,12 @@ from uuid import uuid4
 # --- Page Configuration ---
 st.set_page_config(
     page_title="DialogXR TASP Chatbot",
-    page_icon="dialogXR_Icon.png",
+    page_icon="dialogXR_Icon.png",  # Make sure this image is in your GitHub repo
     layout="wide"
 )
 
 # --- API Configuration ---
-
+# This public URL is correct and will be accessed from Streamlit Cloud
 API_URL = "http://94.56.105.18:7898/children_services/chat"
 
 # --- Session State ---
@@ -57,7 +57,8 @@ with st.sidebar:
     st.title("🤖 The Association of Safeguarding Partners Chatbot")
     
     st.markdown("### Powered by:")
-    st.image("dialogXR_Typography.png", width=300)
+    # Make sure these images are in your GitHub repo
+    st.image("dialogXR_Typography.png", width=300) 
     
     st.markdown(
         """<p style="margin-top:1rem; margin-bottom:0.5rem; font-size: 1.1rem; font-weight: bold;">AI powered by</p>""",
@@ -116,7 +117,6 @@ if not st.session_state["messages"] and not st.session_state["template_used"]:
     
     cols = st.columns(len(template_questions) if len(template_questions) < 5 else 5)
     for i, question in enumerate(template_questions):
-
         cols[i].button(question, key=f"suggest_{i}", on_click=set_prompt, args=(question,), use_container_width=True)
 
 
@@ -128,7 +128,7 @@ for msg in st.session_state["messages"]:
 # Check for pending input from buttons
 if prompt_from_button := st.session_state.pop("pending_input", None):
     user_input = prompt_from_button
-    st.rerun()
+    st.rerun() # Use rerun to process the button click as a new input
 else:
     user_input = st.chat_input("Ask me anything...")
 
@@ -138,7 +138,8 @@ if user_input:
     with st.chat_message("user"):
         st.write(user_input)
 
-    # --- Streaming Logic ---
+    # --- Streaming Logic (This is the 'backend handling' part) ---
+    # This logic is correct for your API and does not need to change.
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
         full_response = ""
@@ -155,11 +156,13 @@ if user_input:
                 for line in r.iter_lines():
                     if line:
                         try:
-                            # This logic is correct. It expects the backend to send
-                            # a single 'data: ' prefix, which the *fixed* backend will.
+                            # This logic correctly parses the SSE events
+                            # sent by your FastAPI server.
                             json_str = line.decode('utf-8')
                             if json_str.startswith('data: '):
                                 json_str = json_str[len('data: '):]
+                            elif json_str.startswith('data:'): # Handle slight variation
+                                json_str = json_str[len('data:'):]
                             
                             if not json_str.strip():
                                 continue
@@ -177,13 +180,13 @@ if user_input:
                                 break
 
                         except json.JSONDecodeError as e:
+                            # Log a warning for debugging, but don't crash
                             print(f"Warning: Could not decode JSON line: {line.decode('utf-8')}. Error: {e}")
             
             message_placeholder.markdown(full_response)
             st.session_state["messages"].append({"role": "assistant", "content": full_response})
 
         except requests.exceptions.RequestException as e:
-            st.error(f"Failed to connect to the backend API: {e}")
+            st.error(f"Failed to connect to the backend API. Please check the connection and try again. Error: {e}")
         except Exception as e:
             st.error(f"An unexpected error occurred: {e}")
-
