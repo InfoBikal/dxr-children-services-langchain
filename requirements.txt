@@ -1,13 +1,2 @@
-langchain
-langchain-core
-langchain-openai
-langchain-ollama
-langchain-milvus
-langchain-community
-redis
-python-dotenv
-fastapi
-uvicorn[standard]
-sse-starlette
 streamlit
 requests
